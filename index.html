@@ -1,1 +1,243 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JAワークアプリ</title><link rel="manifest" href="manifest.json"><link rel="stylesheet" href="style.css"></head><body><header><div class="logo">JA</div><div><small>JA WORK SUPPORT</small><h1>JA業務サポート</h1></div></header><main><section class="card"><h2>今日の業務</h2><div id="clock"></div><div class="grid"><button onclick="addTask('出勤確認')">出勤確認</button><button onclick="addTask('訪問予定')">訪問予定</button><button onclick="addTask('農機対応')">農機対応</button><button onclick="addTask('集金・書類')">集金・書類</button></div></section><section class="card"><h2>タスク登録</h2><div class="row"><input id="taskInput" placeholder="例：○○様へ電話"><button onclick="addCustomTask()">追加</button></div><ul id="tasks"></ul></section><section class="card"><h2>組合員メモ</h2><input id="member" placeholder="組合員名"><textarea id="memo" placeholder="対応内容・要望・次回確認事項"></textarea><button onclick="saveMemo()">メモ保存</button><div id="memos"></div></section><section class="card"><h2>便利機能</h2><div class="grid"><button onclick="exportCSV()">CSV出力</button><button onclick="clearDone()">完了削除</button><button onclick="window.print()">印刷/PDF</button><button onclick="alert('広告・案内枠：JA商品、共済、農機、イベント告知に使えます')">案内枠</button></div></section></main><nav><button onclick="scrollToTop()">ホーム</button><button onclick="document.getElementById('taskInput').focus()">タスク</button><button onclick="document.getElementById('memo').focus()">メモ</button></nav><script src="script.js"></script></body></html>
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#176b3a">
+  <meta name="description" content="JA職員向けの農機点検、日報、在庫、配送、営農訪問、シフト、研修をまとめた業務支援PWA">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <title>JA業務ポータル</title>
+</head>
+<body>
+  <div id="loginScreen" class="login-screen">
+    <form id="loginForm" class="login-card">
+      <div class="brand-mark">JA</div>
+      <h1>JA業務ポータル</h1>
+      <p>職員用デモログイン</p>
+      <label>職員ID<input id="loginId" autocomplete="username" value="staff"></label>
+      <label>パスワード<input id="loginPassword" type="password" autocomplete="current-password" value="1234"></label>
+      <label class="checkbox"><input id="adminLogin" type="checkbox"> 管理者としてログイン</label>
+      <button class="primary" type="submit">ログイン</button>
+      <small>デモ用：職員ID staff / パスワード 1234</small>
+    </form>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header class="app-header">
+      <div>
+        <span class="eyebrow">JA WORK SUPPORT</span>
+        <h1>JA業務ポータル</h1>
+      </div>
+      <div class="header-actions">
+        <button id="installBtn" class="ghost hidden">ホーム画面に追加</button>
+        <button id="themeBtn" class="icon-btn" aria-label="ダークモード">🌙</button>
+        <button id="logoutBtn" class="ghost">ログアウト</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="dashboard" class="page active">
+        <div class="hero">
+          <div>
+            <p id="todayLabel"></p>
+            <h2>今日の業務を一つの画面で管理</h2>
+            <p>入力内容はこの端末に自動保存されます。</p>
+          </div>
+          <button id="notifyBtn" class="secondary">🔔 通知を有効化</button>
+        </div>
+        <div id="summaryCards" class="summary-grid"></div>
+        <div class="grid two">
+          <article class="card">
+            <div class="card-title"><h3>今月の業務件数</h3><button onclick="printPage()">📄 PDF出力</button></div>
+            <canvas id="monthlyChart" width="720" height="300" aria-label="月別集計グラフ"></canvas>
+          </article>
+          <article class="card">
+            <div class="card-title"><h3>点検期限アラート</h3></div>
+            <div id="deadlineList" class="list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="farmerSearch" class="page">
+        <div class="page-head"><div><h2>🔍 農家検索</h2><p>氏名・地区・電話番号・作物から検索</p></div></div>
+        <article class="card">
+          <div class="toolbar">
+            <input id="farmerQuery" placeholder="例：佐藤、燕市、米">
+            <button id="searchFarmerBtn" class="primary">検索</button>
+          </div>
+          <form id="farmerForm" class="form-grid">
+            <input name="name" placeholder="農家・組合員名" required>
+            <input name="area" placeholder="地区">
+            <input name="phone" placeholder="電話番号" inputmode="tel">
+            <input name="crop" placeholder="主な作物">
+            <textarea name="memo" placeholder="メモ"></textarea>
+            <button class="secondary" type="button" data-geo-target="farmerForm">📍 現在地を記録</button>
+            <input name="location" placeholder="位置情報" readonly>
+            <button class="primary" type="submit">農家情報を登録</button>
+          </form>
+          <div id="farmerResults" class="data-table"></div>
+        </article>
+      </section>
+
+      <section id="machinery" class="page">
+        <div class="page-head"><div><h2>🚜 農機点検・整備記録</h2><p>点検履歴、写真、次回点検日を保存</p></div></div>
+        <article class="card">
+          <form id="machineryForm" class="form-grid">
+            <input name="machine" placeholder="農機名・型式" required>
+            <input name="owner" placeholder="所有者・利用者">
+            <input name="date" type="date" required>
+            <input name="nextDate" type="date">
+            <select name="status"><option>正常</option><option>要整備</option><option>修理中</option><option>完了</option></select>
+            <textarea name="detail" placeholder="点検・整備内容"></textarea>
+            <label class="file-label">📷 写真添付<input name="photo" type="file" accept="image/*" capture="environment"></label>
+            <button class="secondary" type="button" data-geo-target="machineryForm">📍 GPS位置記録</button>
+            <input name="location" placeholder="位置情報" readonly>
+            <button class="primary" type="submit">点検記録を保存</button>
+          </form>
+          <div id="machineryList" class="data-table"></div>
+        </article>
+      </section>
+
+      <section id="shift" class="page">
+        <div class="page-head"><div><h2>📅 有給・勤務シフト</h2><p>勤務予定と休暇申請を管理</p></div></div>
+        <article class="card">
+          <form id="shiftForm" class="form-grid">
+            <input name="date" type="date" required>
+            <select name="type"><option>通常勤務</option><option>早番</option><option>遅番</option><option>有給</option><option>半休</option><option>休日</option></select>
+            <input name="start" type="time">
+            <input name="end" type="time">
+            <textarea name="note" placeholder="備考"></textarea>
+            <button class="primary" type="submit">シフトを登録</button>
+          </form>
+          <div id="shiftList" class="data-table"></div>
+        </article>
+      </section>
+
+      <section id="dailyReport" class="page">
+        <div class="page-head"><div><h2>📋 日報入力</h2><p>作業、訪問、売上、引継ぎ事項を記録</p></div></div>
+        <article class="card">
+          <form id="reportForm" class="form-grid">
+            <input name="date" type="date" required>
+            <input name="staff" placeholder="担当者" required>
+            <input name="visits" type="number" min="0" placeholder="訪問件数">
+            <input name="sales" type="number" min="0" placeholder="売上・取扱額">
+            <textarea name="work" placeholder="本日の作業内容" required></textarea>
+            <textarea name="handover" placeholder="引継ぎ・課題"></textarea>
+            <button class="primary" type="submit">日報を保存</button>
+          </form>
+          <div id="reportList" class="data-table"></div>
+        </article>
+      </section>
+
+      <section id="inventory" class="page">
+        <div class="page-head"><div><h2>📦 在庫管理</h2><p>資材・部品の入出庫と発注目安を確認</p></div></div>
+        <article class="card">
+          <form id="inventoryForm" class="form-grid">
+            <input name="item" placeholder="品名" required>
+            <input name="category" placeholder="分類">
+            <input name="quantity" type="number" min="0" placeholder="在庫数" required>
+            <input name="threshold" type="number" min="0" placeholder="発注点" required>
+            <input name="location" placeholder="保管場所">
+            <button class="primary" type="submit">在庫を登録</button>
+          </form>
+          <div id="inventoryList" class="data-table"></div>
+        </article>
+      </section>
+
+      <section id="delivery" class="page">
+        <div class="page-head"><div><h2>🚛 配送管理</h2><p>配送先・担当者・完了状況を管理</p></div></div>
+        <article class="card">
+          <form id="deliveryForm" class="form-grid">
+            <input name="date" type="date" required>
+            <input name="destination" placeholder="配送先" required>
+            <input name="item" placeholder="品目・数量">
+            <input name="driver" placeholder="担当者">
+            <select name="status"><option>未出発</option><option>配送中</option><option>完了</option></select>
+            <button class="secondary" type="button" data-geo-target="deliveryForm">📍 現在地を記録</button>
+            <input name="location" placeholder="位置情報" readonly>
+            <button class="primary" type="submit">配送予定を登録</button>
+          </form>
+          <div id="deliveryList" class="data-table"></div>
+        </article>
+      </section>
+
+      <section id="visit" class="page">
+        <div class="page-head"><div><h2>👨‍🌾 営農訪問記録</h2><p>相談内容、対応、写真、訪問位置を保存</p></div></div>
+        <article class="card">
+          <form id="visitForm" class="form-grid">
+            <input name="date" type="date" required>
+            <input name="farmer" placeholder="訪問先農家" required>
+            <input name="staff" placeholder="担当者">
+            <textarea name="consultation" placeholder="相談内容"></textarea>
+            <textarea name="response" placeholder="対応・次回予定"></textarea>
+            <label class="file-label">📷 写真添付<input name="photo" type="file" accept="image/*" capture="environment"></label>
+            <button class="secondary" type="button" data-geo-target="visitForm">📍 GPS位置記録</button>
+            <input name="location" placeholder="位置情報" readonly>
+            <button class="primary" type="submit">訪問記録を保存</button>
+          </form>
+          <div id="visitList" class="data-table"></div>
+        </article>
+      </section>
+
+      <section id="training" class="page">
+        <div class="page-head"><div><h2>📝 会議・研修申込</h2><p>開催予定と参加状況を管理</p></div></div>
+        <article class="card">
+          <form id="trainingForm" class="form-grid">
+            <input name="title" placeholder="会議・研修名" required>
+            <input name="date" type="datetime-local" required>
+            <input name="place" placeholder="会場・オンラインURL">
+            <select name="status"><option>申込予定</option><option>申込済み</option><option>参加</option><option>欠席</option></select>
+            <textarea name="note" placeholder="持ち物・備考"></textarea>
+            <button class="primary" type="submit">予定を登録</button>
+          </form>
+          <div id="trainingList" class="data-table"></div>
+        </article>
+      </section>
+
+      <section id="admin" class="page">
+        <div class="page-head"><div><h2>👥 管理者画面</h2><p>データ件数、バックアップ、初期化</p></div></div>
+        <div class="grid two">
+          <article class="card">
+            <h3>☁️ データバックアップ</h3>
+            <p>端末内データをJSONファイルに保存・復元します。</p>
+            <div class="toolbar wrap">
+              <button id="backupBtn" class="primary">バックアップを書き出す</button>
+              <label class="file-label">バックアップを読み込む<input id="restoreInput" type="file" accept="application/json"></label>
+            </div>
+          </article>
+          <article class="card">
+            <h3>管理操作</h3>
+            <p id="adminStatus"></p>
+            <button id="clearBtn" class="danger">全データを初期化</button>
+          </article>
+        </div>
+        <article class="card">
+          <h3>登録データ件数</h3>
+          <div id="adminCounts" class="summary-grid"></div>
+        </article>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" id="bottomNav">
+      <button data-page="dashboard" class="active">🏠<span>ホーム</span></button>
+      <button data-page="farmerSearch">🔍<span>農家</span></button>
+      <button data-page="machinery">🚜<span>農機</span></button>
+      <button data-page="dailyReport">📋<span>日報</span></button>
+      <button id="moreBtn">☰<span>その他</span></button>
+    </nav>
+
+    <div id="moreMenu" class="more-menu hidden">
+      <button data-page="shift">📅 有給・シフト</button>
+      <button data-page="inventory">📦 在庫管理</button>
+      <button data-page="delivery">🚛 配送管理</button>
+      <button data-page="visit">👨‍🌾 営農訪問</button>
+      <button data-page="training">📝 会議・研修</button>
+      <button data-page="admin">👥 管理者画面</button>
+    </div>
+    <div id="toast" class="toast hidden"></div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
